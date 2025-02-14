@@ -1,0 +1,95 @@
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+import keras
+
+# Caminho da pasta onde estão as imagens do TrashNet organizadas por classe
+dataset_path = "/Users/yuri/trashnet/data/dataset-resized"
+
+# Definir tamanho das imagens e batch size
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+
+# Carregar os conjuntos de treinamento e validação
+train_dataset = tf.keras.utils.image_dataset_from_directory(
+    dataset_path,
+    validation_split=0.2,  # 20% para validação
+    subset="training",
+    seed=123,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE
+)
+
+val_dataset = tf.keras.utils.image_dataset_from_directory(
+    dataset_path,
+    validation_split=0.2,
+    subset="validation",
+    seed=123,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE
+)
+
+# Pegar os nomes das classes
+class_names = train_dataset.class_names
+print(f"Classes detectadas: {class_names}")
+
+# Normalizar os pixels (0-1) para melhor desempenho
+normalization_layer = tf.keras.layers.Rescaling(1./255)
+train_dataset = train_dataset.map(lambda x, y: (normalization_layer(x), y))
+val_dataset = val_dataset.map(lambda x, y: (normalization_layer(x), y))
+
+mobilenetv2_weights = "/Users/yuri/EcoScan/mobilenet_v2_weights_tf_dim_ordering_tf_kernels_1.0_224_no_top.h5"
+
+# Carregar modelo MobileNetV2 pré-treinado
+base_model = tf.keras.applications.MobileNetV2(
+    input_shape=(224, 224, 3),
+    include_top=False,  # Remove as camadas finais do modelo original
+    weights=mobilenetv2_weights
+)
+
+# Congelar os pesos do MobileNetV2 para usar como extrator de características
+base_model.trainable = False
+
+# Construir o novo modelo com camadas personalizadas
+model = tf.keras.Sequential([
+    base_model,
+    tf.keras.layers.GlobalAveragePooling2D(),  # Reduz features para um vetor
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dropout(0.5),  # Ajuda a evitar overfitting
+    tf.keras.layers.Dense(len(class_names), activation='softmax')  # Número de classes do TrashNet
+])
+
+# Compilar o modelo
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# Mostrar resumo do modelo
+model.summary()
+
+# Definir callback para parar o treinamento se o modelo não melhorar
+early_stopping = tf.keras.callbacks.EarlyStopping(
+    monitor='val_loss',
+    patience=5,  # Para se não melhorar por 5 epochs seguidas
+    restore_best_weights=True
+)
+
+# Treinar o modelo
+history = model.fit(
+    train_dataset,
+    validation_data=val_dataset,
+    epochs=20,  # Você pode aumentar esse valor para melhor desempenho
+    callbacks=[early_stopping]
+)
+
+# Plotar a acurácia
+plt.plot(history.history['accuracy'], label='Acurácia de Treinamento')
+plt.plot(history.history['val_accuracy'], label='Acurácia de Validação')
+plt.xlabel('Épocas')
+plt.ylabel('Acurácia')
+plt.legend()
+plt.show()
+
+keras.saving.save_model(model, "EcoScanModelV1.keras")
