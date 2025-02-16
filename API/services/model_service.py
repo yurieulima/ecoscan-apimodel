@@ -1,7 +1,7 @@
 from keras.api.models import load_model
 import numpy as np
 
-model = load_model("models/EcoScanModelV1.keras")
+model = load_model("models/EcoScanModelV2.keras")
 
 CLASS_MAPING = {
     0: "papelao",
